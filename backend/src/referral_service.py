@@ -3,7 +3,7 @@ from .models import Agency,Referral,Intake
 from .constants import Topic
 from .common import get,reject,finish,editable,lock_referral
 from .intake_service import authorized
-from .triage_service import latest
+from .triage_service import current_matters
 from .document_service import missing
 from .conflict_service import conflict
 
@@ -14,12 +14,18 @@ def agency(db,data,user):
 def refer(db,data,user):
     case=editable(db,data.intake_id);agency=get(db,Agency,data.agency_id,True)
     reject(not authorized(db,case.id),'授权未取得或已撤回，禁止转介')
-    triage=latest(db,case.id);reject(not triage,'主题尚未人工复核，低置信结果必须退回人工')
-    reject(triage.approved not in agency.specialties.split(','),'机构专长不覆盖该咨询主题')
-    absent=missing(db,case.id,triage.approved);reject(bool(absent),'缺少关键材料：'+','.join(absent))
+    _,rows=current_matters(db,case.id)
+    topics={m.approved for m in rows if m.status=='confirmed' and m.approved}
+    reject(not topics,'主题尚未人工复核，低置信结果必须退回人工')
+    reject(any(m.status=='pending' for m in rows),'仍有事项待复核，逐项确认后才能转介')
+    topic=data.topic or (next(iter(topics)) if len(topics)==1 else None)
+    reject(topic is None,'卷宗含多桩已确认事项，请指定本次转介主题')
+    reject(topic not in topics,'该主题未在当前版本事项中确认')
+    reject(topic not in agency.specialties.split(','),'机构专长不覆盖该咨询主题')
+    absent=missing(db,case.id,topic);reject(bool(absent),'缺少关键材料：'+','.join(absent))
     blocked,reason=conflict(db,case.id,agency.id);reject(blocked,reason)
     reject(agency.active_count>=agency.capacity,'机构当前承接已满，可撤回未受理转介后改派')
-    agency.active_count+=1;case.status='referred';row=Referral(intake_id=case.id,agency_id=agency.id,topic=triage.approved);db.add(row);db.flush();return finish(db,user,'发出转介信',row)
+    agency.active_count+=1;case.status='referred';row=Referral(intake_id=case.id,agency_id=agency.id,topic=topic);db.add(row);db.flush();return finish(db,user,'发出转介信',row)
 def accept(db,id,data,user):
     row=lock_referral(db,id);case=get(db,Intake,row.intake_id,True);get(db,Agency,row.agency_id,True)
     reject(row.status!='pending','仅待受理转介可登记回执')

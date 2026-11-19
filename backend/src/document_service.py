@@ -1,11 +1,11 @@
 from sqlalchemy import select
 from .models import Document,Requirement,Intake
 from .common import get,reject,finish,editable
-from .triage_service import latest
+from .triage_service import confirmed_topics
 
 def submit(db,data,user):
     editable(db,data.intake_id);requirement=get(db,Requirement,data.requirement_id)
-    triage=latest(db,data.intake_id);reject(not triage or triage.approved!=requirement.topic,'材料类型与当前复核主题不符')
+    reject(requirement.topic not in confirmed_topics(db,data.intake_id),'材料类型与当前已确认事项主题不符')
     row=db.scalar(select(Document).where(Document.intake_id==data.intake_id,Document.requirement_id==data.requirement_id))
     if row:row.reference=data.reference;row.status='submitted';row.note=''
     else:row=Document(**data.model_dump());db.add(row);db.flush()

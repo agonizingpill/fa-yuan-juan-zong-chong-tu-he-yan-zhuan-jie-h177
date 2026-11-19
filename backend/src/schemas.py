@@ -38,6 +38,7 @@ class AgencyInput(BaseModel):
 class ReferralInput(BaseModel):
     intake_id:int
     agency_id:int
+    topic:str|None=Field(default=None,pattern='^(labor|housing|consumer)$')
 class ReceiptInput(BaseModel):
     receipt:str=Field(min_length=4,max_length=120)
 class WithdrawInput(BaseModel):
